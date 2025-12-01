@@ -1,2 +1,5 @@
 # input data
 data/input.txt
+
+# pycache
+__pycache__
