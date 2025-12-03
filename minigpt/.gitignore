@@ -3,3 +3,6 @@ data/input.txt
 
 # pycache
 __pycache__
+
+# model
+ckpt.pt
