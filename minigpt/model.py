@@ -200,21 +200,45 @@ class GPTLanguageModel(nn.Module):
         return logits, loss, new_kv
 
     # [CHANGE] Updated Generate function to use the cache
-    def generate(self, idx, max_new_tokens):
+    @torch.no_grad()
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, do_sample=False):
+        """
+        Generates text with optional sampling controls.
+        temperature: 1.0 = standard, >1.0 = crazy, <1.0 = focused
+        top_k: Retain only the top_k most likely tokens (prevents gibberish)
+        do_sample: True = pick randomly from prob dist, False = always pick best word
+        """
         past_kv = None
         for _ in range(max_new_tokens):
             # If we have cache, we only feed the LAST token
             if past_kv is not None:
                 idx_cond = idx[:, -1:] 
             else:
-                idx_cond = idx
+                idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             
+            # Forward pass
             logits, _, past_kv = self(idx_cond, past_kv=past_kv)
             
-            logits = logits[:, -1, :] 
-            probs = F.softmax(logits, dim=-1) 
-            idx_next = torch.multinomial(probs, num_samples=1) 
-            idx = torch.cat((idx, idx_next), dim=1) 
+            # Focus on last step and apply temperature
+            logits = logits[:, -1, :] / temperature
+            
+            # Optional: Top-K Filtering (Crop the tail of the distribution)
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+
+            # Apply Softmax
+            probs = F.softmax(logits, dim=-1)
+            
+            # Sample or Greedy
+            if do_sample:
+                idx_next = torch.multinomial(probs, num_samples=1)
+            else:
+                _, idx_next = torch.topk(probs, k=1, dim=-1)
+                
+            # Append
+            idx = torch.cat((idx, idx_next), dim=1)
+            
         return idx
 
     @classmethod
@@ -224,28 +248,53 @@ class GPTLanguageModel(nn.Module):
         from transformers import GPT2LMHeadModel
 
         print(f"Loading weights for {model_type}...")
-        config = GPTConfig(vocab_size=50257, n_layer=12, n_head=12, n_embd=768)
+        
+        # 1. Initialize our model with LoRA config enabled
+        # We hardcode config for gpt2-small (124M)
+        config = GPTConfig(vocab_size=50257, n_layer=12, n_head=12, n_embd=768, use_lora=True)
         model = GPTLanguageModel(config)
         sd = model.state_dict()
 
+        # 2. Download OpenAI weights
         model_hf = GPT2LMHeadModel.from_pretrained(model_type)
         sd_hf = model_hf.state_dict()
 
+        # 3. Filter garbage keys
         sd_hf_keys = [k for k in sd_hf.keys() if not k.endswith('attn.masked_bias')] 
-        sd_keys = [k for k in sd.keys() if not k.endswith('.attn.bias')] 
+        sd_hf_keys = [k for k in sd_hf_keys if not k.endswith('.attn.bias')]
 
         transposed = ['attn.c_attn.weight', 'attn.c_proj.weight', 'mlp.c_fc.weight', 'mlp.c_proj.weight']
         
-        assert len(sd_hf_keys) == len(sd_keys), f"mismatched keys: {len(sd_hf_keys)} != {len(sd_keys)}"
-
+        # 4. The Smart Copy Loop
+        print("Copying weights into LoRA-compatible layers...")
         for k in sd_hf_keys:
-            if any(k.endswith(w) for w in transposed):
-                assert sd_hf[k].shape[::-1] == sd[k].shape
-                with torch.no_grad():
-                    sd[k].copy_(sd_hf[k].t())
+            # SEARCH LOGIC: Where does this OpenAI key belong in our model?
+            
+            # Case A: Exact match (e.g., ln_1.weight)
+            if k in sd:
+                target_k = k
+            
+            # Case B: LoRA Wrapped Layer (e.g., c_attn.weight -> c_attn.linear.weight)
+            # OpenAI has "weight", we have "linear.weight" because of the wrapper
+            elif k.replace('.weight', '.linear.weight') in sd:
+                target_k = k.replace('.weight', '.linear.weight')
+                
+            # Case C: LoRA Wrapped Bias (e.g., c_attn.bias -> c_attn.linear.bias)
+            elif k.replace('.bias', '.linear.bias') in sd:
+                target_k = k.replace('.bias', '.linear.bias')
+                
             else:
-                assert sd_hf[k].shape == sd[k].shape
-                with torch.no_grad():
-                    sd[k].copy_(sd_hf[k])
+                raise ValueError(f"OpenAI key {k} could not be found in local model!")
 
+            # COPY LOGIC
+            if any(k.endswith(w) for w in transposed):
+                assert sd_hf[k].shape[::-1] == sd[target_k].shape
+                with torch.no_grad():
+                    sd[target_k].copy_(sd_hf[k].t())
+            else:
+                assert sd_hf[k].shape == sd[target_k].shape
+                with torch.no_grad():
+                    sd[target_k].copy_(sd_hf[k])
+
+        print("Weights loaded successfully!")
         return model

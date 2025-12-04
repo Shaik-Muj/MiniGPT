@@ -5,4 +5,4 @@ data/input.txt
 __pycache__
 
 # model
-ckpt.pt
+*.pt
