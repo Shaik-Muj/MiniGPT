@@ -6,3 +6,6 @@ __pycache__
 
 # model
 *.pt
+
+# json data files
+*.json
