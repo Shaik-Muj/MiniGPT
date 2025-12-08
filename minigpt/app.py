@@ -16,7 +16,7 @@ model = GPTLanguageModel(config)
 # 2. Load the Trained Weights
 # This includes the OpenAI brain AND your Alpaca LoRA adapters
 print("Loading fine-tuned weights...")
-checkpoint = torch.load('lora_v2.pt', map_location=device)
+checkpoint = torch.load('minigpt/lora_v2.pt', map_location=device)
 model.load_state_dict(checkpoint)
 model.to(device)
 model.eval()
