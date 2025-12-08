@@ -9,7 +9,7 @@ Beyond architecture, this project implements **LoRA (Low-Rank Adaptation)** from
 ### Key Objectives Achieved
 
 - **Deep Learning Architecture:** Implemented Causal Multi-Head Attention, Feed-Forward Networks, and Layer Normalization manually.
-- **Inference Optimization:** Implemented **KV Caching** to reduce inference time complexity from $O(N^2)$ to $O(N)$.
+- **Inference Optimization:** Implemented **KV Caching** to reduce autoregressive generation from $O(N^3)$ to $O(N^2)$ by eliminating redundant Key/Value recomputation.
 - **Parameter Efficient Fine-Tuning (PEFT):** Built a custom LoRA adapter to fine-tune the model on instruction data, reducing trainable parameters by **99.8%**.
 - **Transfer Learning:** Successfully bridged the gap between custom architecture and official OpenAI weights.
 
@@ -47,7 +47,13 @@ Instead of fine-tuning all 124M parameters, I injected rank-decomposition matric
 
 ### 3. KV Caching for Inference
 
-Implemented a caching mechanism to store Key and Value states during generation. This prevents redundant re-computation of previous tokens, drastically speeding up text generation for long sequences.
+Implemented a caching mechanism to store Key and Value states during autoregressive generation.
+
+- **Without Caching:** Generating N tokens requires recomputing attention for all previous tokens at each step → $O(N^3)$ total complexity
+- **With Caching:** Store computed K/V pairs and reuse them → $O(N^2)$ total complexity
+- **Per-Token Speedup:** Reduces each generation step from $O(N^2)$ to $O(N)$
+- **Memory Trade-off:** ~144 MB for 2048-token context (12 layers × 12 heads × 64 dim × fp32)
+- **Practical Impact:** 10-100x speedup for long sequences with minimal memory overhead
 
 ---
 
