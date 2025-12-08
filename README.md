@@ -65,13 +65,9 @@ _Observed trade-off between alignment and knowledge retention: While 1,000-sampl
 
 ---
 
-## Visualization
+## Visualization![1765217374290](image/README/1765217374290.png)
 
-**(Placeholder: Add a screenshot of your Gradio Chatbot UI here)**
-_Interactive Chat Interface built with Gradio._
-
-**(Placeholder: Add your Heatmap image here)**
-_Attention Mechanism Heatmap showing token-to-token relationships._
+\_
 
 ---
 
@@ -91,6 +87,7 @@ _Attention Mechanism Heatmap showing token-to-token relationships._
    ```
 
 3. **Run the Chatbot**
+
    ```bash
    python app.py
    ```
